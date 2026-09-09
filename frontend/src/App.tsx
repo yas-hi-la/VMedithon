@@ -776,7 +776,7 @@ export default function App() {
       <div className="relative z-10 flex flex-col min-h-screen">
         <Header />
 
-        <main className="flex-1 max-w-2xl w-full px-4 md:px-0 md:ml-[8vw] xl:ml-[10vw]">
+        <main className="flex-1 max-w-2xl w-full mx-auto px-4 md:px-0">
           <Hero />
 
           <div className="space-y-4 pb-20 px-4 md:px-0">
