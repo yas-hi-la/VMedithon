@@ -453,6 +453,7 @@ function ResultCard({ result }: { result: AnalysisResult }) {
           <div className={`px-4 py-2.5 rounded-xl text-center ${badgeClass(result.classification)}`}>
             <div className="font-mono text-xs mb-0.5 opacity-60">{classificationLabel(result.classification)}</div>
             <div className="font-display font-bold text-base leading-tight">{result.classification}</div>
+            <div className="text-[10px] mt-1 opacity-60">Status: {result.status}</div>
           </div>
         </div>
 
@@ -734,13 +735,18 @@ export default function App() {
       return;
     }
     setAppState('loading');
-    const saved = await loadSavedVariant(gene.trim(), hgvs.trim());
-    setAppState('idle');
-    if (saved?.evidence?.length) {
-      setEvidence(saved.evidence);
-      setValidErr('');
-    } else {
-      setValidErr('No saved evidence found for this variant.');
+    try {
+      const saved = await loadSavedVariant(gene.trim(), hgvs.trim());
+      setAppState('idle');
+      if (saved?.evidence?.length) {
+        setEvidence(saved.evidence);
+        setValidErr('');
+      } else {
+        setValidErr('No saved evidence found for this variant.');
+      }
+    } catch (e) {
+      setAppState('idle');
+      setValidErr(e instanceof Error ? e.message : 'Unable to load saved evidence.');
     }
   }, [gene, hgvs]);
 
