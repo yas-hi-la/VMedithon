@@ -11,6 +11,7 @@ This is a prototype and decision-support tool. It is not a clinical diagnostic s
 - `frontend/`: Future user interface.
 - `backend/api/`: HTTP entry points and API route handlers.
 - `backend/services/`: Independently developed integrations and application services.
+- `backend/database/`: SQLite configuration, connections, initialization, schema, and health checks.
 - `backend/acmg_engine/`: Future ACMG rules and classification components.
 - `backend/models/`: Shared data models.
 - `backend/utils/`: Shared utilities.
@@ -29,7 +30,9 @@ GET /health
 
 No variant validation, normalization, external API retrieval, predictor retrieval, ACMG rules, classification, treatment logic, or frontend screens have been implemented.
 
-The backend is organized into configuration (`backend/config/`), HTTP server setup (`backend/api/server.py`), route definitions (`backend/api/routes.py`), request handling (`backend/api/handler.py`), controllers (`backend/api/controllers.py`), and services (`backend/services/`).
+The backend is organized into configuration (`backend/config/`), HTTP server setup (`backend/api/server.py`), route definitions (`backend/api/routes.py`), request handling (`backend/api/handler.py`), controllers (`backend/api/controllers.py`), services (`backend/services/`), and an HTTP-independent SQLite database layer (`backend/database/`).
+
+Step 3 adds SQLite as the local development database. No domain tables have been introduced yet; the schema currently tracks only SQLite's schema version using `PRAGMA user_version`.
 
 ## Planned Modules
 
@@ -63,6 +66,28 @@ Expected response:
 ```
 
 To configure the listening address or port, export `BACKEND_HOST` and `BACKEND_PORT`. `.env.example` lists placeholders for future integrations; it contains no real credentials or secrets.
+
+### Database Setup
+
+The database layer uses Python's built-in `sqlite3` module, so no dependency installation is required. `DB_PATH` controls the SQLite file location and defaults to `data/app.db`.
+
+Initialize the local database explicitly:
+
+```bash
+python3 -m backend.database.initialize
+```
+
+The initialization command is safe to run repeatedly. Check database connectivity and query execution with:
+
+```bash
+python3 -m backend.database.health
+```
+
+The database tests use isolated temporary SQLite files:
+
+```bash
+python3 -m unittest tests.test_database
+```
 
 Run the backend checks with:
 

@@ -8,6 +8,11 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Local SQLite databases
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
 # Virtual environments
 .venv/
 venv/
