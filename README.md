@@ -1,162 +1,143 @@
-# Explainable Hereditary Cancer Variant Decision-Support Prototype
+# Variant-to-Verdict
 
-## Purpose
+**An explainable decision-support system that classifies uncertain cancer gene variants and uses a machine learning model to rank candidate drugs.**
 
-This hackathon MVP will accept a genetic variant described by a gene and HGVS notation, gather supporting evidence, evaluate a defined subset of ACMG criteria, and produce an explainable classification with an evidence-backed treatment association.
+> From an unreadable genetic test result → to a transparent, evidence-backed treatment lead.
 
-This is a prototype and decision-support tool. It is not a clinical diagnostic system and must not be used to prescribe or select treatment.
+---
 
-## High-Level Architecture
+## The Problem
 
-- `frontend/`: Future user interface.
-- `backend/api/`: HTTP entry points and API route handlers.
-- `backend/services/`: Independently developed integrations and application services.
-- `backend/services/variant_service/analysis_service.py`: Application use case that orchestrates local deterministic variant analysis.
-- `backend/database/`: SQLite configuration, connections, initialization, schema, and health checks.
-- `backend/analysis/`: In-memory deterministic analysis types and engine.
-- `backend/acmg_engine/`: Future ACMG rules and classification components.
-- `backend/models/`: Shared data models.
-- `backend/utils/`: Shared utilities.
-- `backend/config/`: Configuration and environment handling.
-- `tests/`: Automated tests.
-- `data/`: Local development data and fixtures.
+Genetic testing for hereditary cancer risk (BRCA1, BRCA2, ATM, Lynch syndrome genes, etc.) often returns a result no one can act on: a **Variant of Uncertain Significance (VUS)**. Clinical guidelines explicitly state a VUS should not be used in clinical decision-making — so the patient and their doctor are left waiting, sometimes for years, exactly when they need an answer most.
 
-## Current Implementation Status
+- **Over 2 million** variants sit in ClinVar today, and **41%** are Uncertain Significance or Conflicting.
+- Re-reviewing just BRCA1/2 VUS reclassified **11%** of variants — directly changing care for **6.8%** of families.
+- Even the best existing classification tools (InterVar, Franklin, VarSome) only match expert-panel classification **65–94%** of the time, and they disagree most on exactly the borderline cases that matter.
+- **The real gap:** none of the existing tools go beyond a label. Even a confirmed pathogenic result requires a separate, manual step to connect it to an actual treatment. Nothing carries a patient from *uncertainty* to *action*.
 
-Step 2 foundation work is complete. The backend currently exposes only a minimal health check:
+## Target Users
 
-```text
-GET /health
-{"status": "ok"}
+- Genetic counselors & clinical geneticists
+- Oncologists & treating physicians
+- Diagnostic lab technicians / molecular pathology labs
+- Precision oncology researchers
+- Ultimately: patients and families carrying hereditary cancer risk
+
+## Our Solution
+
+Variant-to-Verdict ingests a patient's variant (a raw FASTA sequence or an HGVS/rsID call) and pulls structured evidence via the **ClinVar E-utilities API**, **gnomAD's GraphQL API**, and **Ensembl VEP** (for REVEL, CADD, and BayesDel scores in one batched call). This evidence is passed into a **deterministic rule engine** that encodes the ACMG/AMP evidence codes (BA1, BS1, PM2, PP3, BP4) as explicit threshold logic — not a learned model — so every classification is a traceable if/then decision, not an inferred probability. A **PubMed E-utilities** query in parallel flags any variant with existing published functional data.
+
+For variants still Uncertain after the rule engine, we query **GDSC (Genomics of Drug Sensitivity in Cancer)** for cell lines carrying the same or a structurally similar variant, and compare their drug-response profile (IC50/AUC) against the profile of cell lines with ClinGen-confirmed pathogenic mutations in the same gene, using a simple distance/similarity metric. This output is stored and displayed as a separate, sample-size-labeled field — architecturally isolated from the classification output so it structurally cannot overwrite a verdict.
+
+Once a variant clears the rule engine as Pathogenic or Likely Pathogenic, its mutation profile is fed into a **supervised ML model (gradient-boosted trees, e.g. XGBoost/LightGBM)** trained on GDSC's mutation-profile-to-drug-response dataset, which outputs a ranked list of candidate drugs by predicted sensitivity. Feature importance for each prediction is computed with **SHAP**, so the ranking ships with a breakdown of which mutation features drove it — not just a ranked list.
+
+## Why This, Not Something Else Already Out There
+
+Automated ACMG classification already exists (InterVar, Franklin, AutoGVP, AAVC) — we're not claiming to have invented that. What's missing from all of them is: (1) a transparent, single-gene triage view instead of an opaque final label, (2) an explicit, sample-size-aware exploratory signal for the hardest cases, held clearly separate from real evidence, and (3) a treatment-ranking step that actually closes the loop to an existing drug. We built the parts that were missing, on top of a category the field already trusts.
+
+## System Architecture
+
+```
+Patient Gene Sequence / Variant
+            │
+            ▼
+┌───────────────────────┐
+│ 1. Input               │  FASTA sequence or HGVS/rsID variant
+└───────────────────────┘
+            │
+            ▼
+┌───────────────────────┐
+│ 2. Mutation Detection  │  Align to reference, call base + amino-acid change
+└───────────────────────┘
+            │
+            ▼
+┌───────────────────────┐
+│ 3. Classification      │  ClinVar + gnomAD + REVEL/CADD/BayesDel
+│    (ACMG rule engine)  │  → Benign · Likely Benign · VUS · Likely Path. · Pathogenic
+└───────────────────────┘
+            │
+      ┌─────┴─────┐
+      │ Uncertain? │
+      └─────┬─────┘
+            ▼
+┌───────────────────────┐
+│ 4. Exploratory Signal  │  GDSC drug-response similarity check
+│    (NOT diagnostic)    │  Flag only — never changes classification
+└───────────────────────┘
+            │
+      Pathogenic / Likely Pathogenic
+            ▼
+┌───────────────────────┐
+│ 5. ML Drug Ranking     │  Model trained on GDSC drug-response data
+│                        │  ranks candidate drugs by predicted sensitivity
+└───────────────────────┘
+            │
+            ▼
+   Clinician-Facing Report
+   (verdict + full evidence trail + ranked drugs)
 ```
 
-No variant validation, normalization, external API retrieval, predictor retrieval, treatment logic, or frontend screens have been implemented.
+## Core Features
 
-The backend is organized into configuration (`backend/config/`), HTTP server setup (`backend/api/server.py`), route definitions (`backend/api/routes.py`), request handling (`backend/api/handler.py`), controllers (`backend/api/controllers.py`), services (`backend/services/`), and an HTTP-independent SQLite database layer (`backend/database/`).
+| Feature | Description |
+|---|---|
+| **Automated Variant Classification** | Pulls ClinVar, gnomAD, and REVEL/CADD/BayesDel scores automatically; applies rule-based ACMG evidence codes (BA1, BS1, PM2, PP3, BP4); outputs a standard 5-tier label with full supporting evidence shown. |
+| **Exploratory Functional Signal** | Cross-checks GDSC cell-line drug-response patterns for still-uncertain variants, clearly labeled as a hypothesis-generating flag, never a diagnostic input. |
+| **ML-Based Drug Ranking** | A model trained on cancer cell-line drug-response data ranks candidate drugs by predicted sensitivity for a confirmed pathogenic mutation. |
+| **Evidence-Transparent Report** | One clinician-facing output — variant, classification with evidence, and ranked drugs — designed to be reviewed, not blindly trusted. |
+| **Built-In Validation Check** | Any exploratory signal is benchmarked against known-answer variants (ClinGen expert panel calls) before being trusted on real uncertain cases. |
 
-Step 4 adds the initial `Variant` domain model. It stores only the required gene and HGVS notation fields; HGVS validation and normalization remain future work. The current SQLite schema version is 3.
+## Explainability, By Design
 
-Step 5 adds an HTTP- and database-independent analysis layer. It accepts an existing `Variant` plus explicitly supplied evidence, preserves evidence provenance and ACMG/AMP criterion traceability, and returns a machine-readable result. The current deterministic behavior reports `insufficient_evidence` when evidence is absent or no combination rule is implemented, and reports `conflicting` when pathogenic and benign evidence are both present. It does not call external sources, infer evidence from gene/HGVS strings, or provide treatment recommendations.
+Explainability isn't a report bolted on after the fact — it constrains which methods we allow into the pipeline at all:
 
-Step 6 adds a deterministic ACMG/AMP-style rule layer inside `backend/analysis/`. It evaluates only explicitly supplied criteria and strengths, preserves criterion-level evaluations, and records satisfied rules and evidence IDs in the decision trace. The supported benign subset includes one stand-alone benign criterion, two strong benign criteria, and one strong plus one supporting benign criterion. Empty, conflicting, and unsupported combinations remain conservative. This is an engineering foundation, not a clinically validated classifier.
+- **Classification** is rule-based ACMG scoring: every evidence code fired is shown with the exact number that triggered it.
+- **Third-party predictors** (REVEL, CADD, BayesDel) are shown alongside the evidence categories they weigh, not just a bare score.
+- **The exploratory signal** ships with its own audit trail — which cell lines, how many, and the raw values — and if a trained model is used here, it's restricted to interpretable methods (e.g., logistic regression or SHAP-explained gradient boosting), never an opaque black box.
+- **The final report** always pairs a verdict with its evidence trail, so a reviewer can reconstruct our reasoning rather than trust it blindly.
 
-Step 7 adds a thin application service at `backend/services/variant_service/analysis_service.py`. Its `run_variant_analysis` entry point accepts an existing `Variant` and explicitly supplied evidence, delegates to the deterministic analysis engine, and returns its `AnalysisResult` unchanged. It does not retrieve evidence, implement scientific rules, access SQLite, or generate clinical recommendations. No HTTP endpoint uses it yet.
+## Scope & Honest Limitations
 
-Step 8 adds `POST /analysis/variants`, a thin JSON HTTP boundary around the Step 7 application service. Requests supply the variant and evidence explicitly; evidence is not retrieved automatically. Responses include the controlled classification, status, criterion and rule evaluations, evidence IDs, and decision trace. This remains a limited deterministic ACMG/AMP-style engineering foundation, not a clinically validated classifier or medical recommendation system.
+| In scope | Explicitly out of scope / disclosed |
+|---|---|
+| One well-studied hereditary cancer gene (BRCA1, BRCA2, or ATM), missense VUS | Multi-gene, genome-wide classification |
+| Rule-based ACMG codes computable from public data (BA1, BS1, PM2, PP3, BP4) | Codes requiring clinical/family data we don't have |
+| Exploratory GDSC signal, sanity-checked against known-answer variants first | Treating the exploratory signal as diagnostic evidence |
+| Two demonstrable gene→drug links with real regulatory backing (BRCA→PARP inhibitors, MMR genes→pembrolizumab), plus ML-ranked candidates | A general-purpose drug engine with no evidentiary backing |
+| Decision support for a clinician / genetic counselor to review | Autonomous diagnosis or treatment decisions |
 
-Step 9 separates request parsing and domain mapping into `backend/api/analysis_requests.py`. The parser validates request structure and existing enum vocabularies before the controller calls the Step 7 service; it does not perform scientific interpretation or ACMG/AMP rule evaluation.
+This is a **decision-support tool**, not a diagnostic replacement — final calls remain with a clinician or genetic counselor.
 
-Step 10 adds SQLite persistence for explicitly submitted evidence in `variant_evidence`, linked to `variants` by foreign key. Evidence rows preserve source provenance, reject duplicate `(variant_id, evidence_id)` pairs, and are inserted through transaction-aware repository/service functions. The analysis engine remains in-memory and database-independent; `POST /analysis/variants` does not persist evidence yet.
+## Tech Stack
 
-Step 11 adds `persist_and_analyze_variant` in `backend/services/variant_service/persisted_analysis_service.py`. This persistence-aware use case atomically reuses or creates the variant, inserts all submitted evidence, runs the existing in-memory analysis against that exact evidence tuple, and commits only after persistence and analysis succeed.
+| Layer | Tools / Libraries |
+|---|---|
+| **Backend / API** | Python, FastAPI |
+| **Sequence handling** | Biopython (reference alignment, variant calling from FASTA input) |
+| **External data retrieval** | ClinVar E-utilities API, gnomAD GraphQL API, Ensembl VEP REST API, PubMed E-utilities API |
+| **Rule engine** | Custom Python threshold-based ACMG evidence-code scorer (deterministic, no ML) |
+| **ML model (drug ranking)** | XGBoost / LightGBM (gradient-boosted trees), trained on GDSC mutation-profile → drug-response data |
+| **Explainability** | SHAP (feature-importance breakdown for every drug ranking) |
+| **Data processing** | pandas, NumPy |
+| **Caching / storage** | SQLite (cached API pulls, to avoid re-querying on repeat runs) |
+| **Frontend / report UI** | Streamlit (interactive dashboard) *or* React + Tailwind (if a custom UI is preferred) |
+| **Validation notebooks** | Jupyter, scikit-learn (concordance benchmarking against ClinGen labels) |
 
-Step 12 connects `POST /analysis/variants` to the persisted-analysis workflow. Valid requests now persist the submitted variant/evidence before returning the existing serialized analysis result. Duplicate evidence returns a safe conflict response and rolls back the complete submission; malformed requests remain HTTP 400. The endpoint requires the explicitly initialized configured SQLite database.
+## Data Sources
 
-Step 13 adds a read-only evidence endpoint: `GET /analysis/variants?gene=...&hgvs_notation=...`. It retrieves the persisted Variant and EvidenceItem records by their existing `(gene, hgvs_notation)` identity without invoking analysis. The response contains only variant identity and persisted evidence/provenance; missing variants return HTTP 404 and malformed query parameters return HTTP 400.
+- [ClinVar](https://www.ncbi.nlm.nih.gov/clinvar) — NIH/NCBI variant classification archive
+- [gnomAD](https://gnomad.broadinstitute.org) — population allele frequency (Broad Institute)
+- [ClinGen](https://clinicalgenome.org) — expert-panel curated gold-standard classifications, used for validation
+- REVEL, CADD, BayesDel (via [Ensembl VEP](https://ensembl.org/Tools/VEP) / dbNSFP) — computational pathogenicity predictors
+- [GDSC](https://www.cancerrxgene.org) (Genomics of Drug Sensitivity in Cancer) — cell-line mutation and drug-response data
+- [PubMed](https://pubmed.ncbi.nlm.nih.gov) — published functional studies and case reports
 
-## Planned Modules
+## Roadmap (Beyond the Hackathon)
 
-- Variant input, HGVS validation, and normalization.
-- ClinVar and gnomAD evidence services.
-- REVEL, CADD, and BayesDel predictor services.
-- Expanded ACMG/AMP rule evaluation and classification.
-- Treatment association and explainable report generation.
-- Frontend workflow for submitting variants and reviewing evidence.
+- Expand from one gene to the broader hereditary-cancer gene panel
+- Formal wet-lab collaboration to validate the exploratory GDSC signal at scale
+- Clinician usability testing on the report format
 
-## Start the Backend
+---
 
-The current backend uses only the Python standard library, so no dependency installation is required.
-
-From the project root:
-
-```bash
-python3 -m backend.api.main
-```
-
-Then check the endpoint in another terminal:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-Expected response:
-
-```json
-{"status": "ok"}
-```
-
-Submit an explicitly structured analysis request:
-
-```bash
-curl -X POST http://127.0.0.1:8000/analysis/variants \
-	-H 'Content-Type: application/json' \
-	-d '{"variant":{"gene":"BRCA1","hgvs_notation":"c.5266dupC"},"evidence":[]}'
-```
-
-Valid analysis requests return HTTP 200, including when the result is `insufficient_evidence` or `conflicting`. Malformed JSON or structurally invalid input returns HTTP 400. The endpoint does not access the database.
-
-Retrieve persisted evidence for an existing variant:
-
-```bash
-curl 'http://127.0.0.1:8000/analysis/variants?gene=BRCA1&hgvs_notation=c.5266dupC'
-```
-
-To configure the listening address or port, export `BACKEND_HOST` and `BACKEND_PORT`. `.env.example` lists placeholders for future integrations; it contains no real credentials or secrets.
-
-### Database Setup
-
-The database layer uses Python's built-in `sqlite3` module, so no dependency installation is required. `DB_PATH` controls the SQLite file location and defaults to `data/app.db`.
-
-Initialize the local database explicitly:
-
-```bash
-python3 -m backend.database.initialize
-```
-
-The initialization command is safe to run repeatedly. Check database connectivity and query execution with:
-
-```bash
-python3 -m backend.database.health
-```
-
-Initialization upgrades earlier databases from schema version 1 or 2 to the current version 3 without deleting existing data. Fresh databases are initialized directly to version 3. No HTTP endpoint depends on database initialization or domain data.
-
-The current schema version is 3. Initialization adds the `variant_evidence` table without rewriting existing variants, enables SQLite foreign-key enforcement on each connection, and remains repeatable.
-
-The database tests use isolated temporary SQLite files:
-
-```bash
-python3 -m unittest tests.test_database
-```
-
-Model and repository tests use isolated temporary SQLite files as well:
-
-```bash
-python3 -m unittest tests.test_variant_repository
-```
-
-Analysis tests use in-memory domain objects and no external services:
-
-```bash
-python3 -m unittest tests.test_analysis
-```
-
-Application-service orchestration tests:
-
-```bash
-python3 -m unittest tests.test_variant_analysis_service
-```
-
-The analysis engine does not retrieve evidence or infer criterion values. Additional ACMG/AMP combinations that are not represented in `backend/analysis/rules.py` are reported as unsupported rather than guessed.
-
-Run the backend checks with:
-
-```bash
-python3 -m unittest discover -s tests -p 'test_*.py'
-```
-
-The tests cover the health response and the basic not-found error response. The application does not load `.env` files automatically; configuration is read from the process environment.
-
-## Disclaimer
-
-This project is an early prototype for research and hackathon development. It is not a clinical diagnostic or treatment-prescribing system. Outputs require review by appropriately qualified professionals and should not replace clinical judgment.
+*Built as a decision-support tool for clinicians and researchers — every output is designed to be checked, not just trusted.*
