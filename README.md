@@ -44,6 +44,8 @@ Step 7 adds a thin application service at `backend/services/variant_service/anal
 
 Step 8 adds `POST /analysis/variants`, a thin JSON HTTP boundary around the Step 7 application service. Requests supply the variant and evidence explicitly; evidence is not retrieved automatically. Responses include the controlled classification, status, criterion and rule evaluations, evidence IDs, and decision trace. This remains a limited deterministic ACMG/AMP-style engineering foundation, not a clinically validated classifier or medical recommendation system.
 
+Step 9 separates request parsing and domain mapping into `backend/api/analysis_requests.py`. The parser validates request structure and existing enum vocabularies before the controller calls the Step 7 service; it does not perform scientific interpretation or ACMG/AMP rule evaluation.
+
 ## Planned Modules
 
 - Variant input, HGVS validation, and normalization.
