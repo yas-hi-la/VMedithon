@@ -1,5 +1,6 @@
 """HTTP request handling for API routes."""
 
+import traceback
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 import json
@@ -87,6 +88,7 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
             )
             return
         except Exception:
+            traceback.print_exc()
             self._send_json(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 {
