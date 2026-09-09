@@ -30,3 +30,19 @@ def get_variant(connection: sqlite3.Connection, variant_id: int) -> Variant | No
         (variant_id,),
     ).fetchone()
     return Variant.from_row(row) if row is not None else None
+
+
+def get_variant_by_identity(
+    connection: sqlite3.Connection,
+    gene: str,
+    hgvs_notation: str,
+) -> Variant | None:
+    row = connection.execute(
+        """
+        SELECT id, gene, hgvs_notation
+        FROM variants
+        WHERE gene = ? AND hgvs_notation = ?
+        """,
+        (gene, hgvs_notation),
+    ).fetchone()
+    return Variant.from_row(row) if row is not None else None

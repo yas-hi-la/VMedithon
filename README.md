@@ -34,7 +34,7 @@ No variant validation, normalization, external API retrieval, predictor retrieva
 
 The backend is organized into configuration (`backend/config/`), HTTP server setup (`backend/api/server.py`), route definitions (`backend/api/routes.py`), request handling (`backend/api/handler.py`), controllers (`backend/api/controllers.py`), services (`backend/services/`), and an HTTP-independent SQLite database layer (`backend/database/`).
 
-Step 4 adds the initial `Variant` domain model. It stores only the required gene and HGVS notation fields; HGVS validation and normalization remain future work. The current SQLite schema version is 2.
+Step 4 adds the initial `Variant` domain model. It stores only the required gene and HGVS notation fields; HGVS validation and normalization remain future work. The current SQLite schema version is 3.
 
 Step 5 adds an HTTP- and database-independent analysis layer. It accepts an existing `Variant` plus explicitly supplied evidence, preserves evidence provenance and ACMG/AMP criterion traceability, and returns a machine-readable result. The current deterministic behavior reports `insufficient_evidence` when evidence is absent or no combination rule is implemented, and reports `conflicting` when pathogenic and benign evidence are both present. It does not call external sources, infer evidence from gene/HGVS strings, or provide treatment recommendations.
 
@@ -45,6 +45,8 @@ Step 7 adds a thin application service at `backend/services/variant_service/anal
 Step 8 adds `POST /analysis/variants`, a thin JSON HTTP boundary around the Step 7 application service. Requests supply the variant and evidence explicitly; evidence is not retrieved automatically. Responses include the controlled classification, status, criterion and rule evaluations, evidence IDs, and decision trace. This remains a limited deterministic ACMG/AMP-style engineering foundation, not a clinically validated classifier or medical recommendation system.
 
 Step 9 separates request parsing and domain mapping into `backend/api/analysis_requests.py`. The parser validates request structure and existing enum vocabularies before the controller calls the Step 7 service; it does not perform scientific interpretation or ACMG/AMP rule evaluation.
+
+Step 10 adds SQLite persistence for explicitly submitted evidence in `variant_evidence`, linked to `variants` by foreign key. Evidence rows preserve source provenance, reject duplicate `(variant_id, evidence_id)` pairs, and are inserted through transaction-aware repository/service functions. The analysis engine remains in-memory and database-independent; `POST /analysis/variants` does not persist evidence yet.
 
 ## Planned Modules
 
@@ -105,7 +107,9 @@ The initialization command is safe to run repeatedly. Check database connectivit
 python3 -m backend.database.health
 ```
 
-Initialization upgrades a Step 3 database from schema version 1 to version 2 without deleting existing data. Fresh databases are initialized directly to version 2. No HTTP endpoint depends on database initialization or domain data.
+Initialization upgrades earlier databases from schema version 1 or 2 to the current version 3 without deleting existing data. Fresh databases are initialized directly to version 3. No HTTP endpoint depends on database initialization or domain data.
+
+The current schema version is 3. Initialization adds the `variant_evidence` table without rewriting existing variants, enables SQLite foreign-key enforcement on each connection, and remains repeatable.
 
 The database tests use isolated temporary SQLite files:
 

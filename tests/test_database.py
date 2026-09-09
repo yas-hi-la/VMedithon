@@ -38,25 +38,43 @@ class DatabaseTest(unittest.TestCase):
         with connect(self.settings) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
 
-        self.assertEqual(version, 2)
+        self.assertEqual(version, 3)
 
-    def test_initialization_upgrades_step3_database_without_data_loss(self) -> None:
+    def test_initialization_creates_evidence_table(self) -> None:
+        initialize_database(self.settings)
+
         with connect(self.settings) as connection:
-            connection.execute(
-                "CREATE TABLE existing_step3_data (value TEXT NOT NULL)"
+            evidence_table = connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name = 'variant_evidence'
+                """
+            ).fetchone()
+
+        self.assertIsNotNone(evidence_table)
+
+    def test_initialization_upgrades_version2_database_without_data_loss(self) -> None:
+        with connect(self.settings) as connection:
+            connection.executescript(
+                """
+                CREATE TABLE variants (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    gene TEXT NOT NULL,
+                    hgvs_notation TEXT NOT NULL,
+                    UNIQUE (gene, hgvs_notation)
+                );
+                INSERT INTO variants (gene, hgvs_notation)
+                VALUES ('BRCA1', 'c.5266dupC');
+                PRAGMA user_version = 2;
+                """
             )
-            connection.execute(
-                "INSERT INTO existing_step3_data (value) VALUES (?)",
-                ("preserve me",),
-            )
-            connection.execute("PRAGMA user_version = 1")
 
         initialize_database(self.settings)
 
         with connect(self.settings) as connection:
-            preserved_value = connection.execute(
-                "SELECT value FROM existing_step3_data"
-            ).fetchone()[0]
+            preserved_variant = connection.execute(
+                "SELECT gene, hgvs_notation FROM variants"
+            ).fetchone()
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             variants_table = connection.execute(
                 """
@@ -65,9 +83,18 @@ class DatabaseTest(unittest.TestCase):
                 """
             ).fetchone()
 
-        self.assertEqual(preserved_value, "preserve me")
-        self.assertEqual(version, 2)
+        self.assertEqual(
+            tuple(preserved_variant),
+            ("BRCA1", "c.5266dupC"),
+        )
+        self.assertEqual(version, 3)
         self.assertIsNotNone(variants_table)
+
+    def test_foreign_keys_are_enabled(self) -> None:
+        with connect(self.settings) as connection:
+            enabled = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+
+        self.assertEqual(enabled, 1)
 
     def test_initialization_is_repeatable(self) -> None:
         initialize_database(self.settings)

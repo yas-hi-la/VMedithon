@@ -6,7 +6,7 @@ from backend.database.config import DatabaseSettings
 from backend.database.connection import connect
 
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 def initialize_database(settings: DatabaseSettings) -> None:
