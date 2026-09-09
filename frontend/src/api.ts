@@ -75,6 +75,37 @@ interface BackendSavedVariant {
   evidence: BackendEvidence[]
 }
 
+export interface RetrievedEvidence {
+  id: string
+  source_name: string
+  source_ref: string
+  summary: string
+  classification: string | null
+  review_status: string | null
+  last_evaluated: string | null
+}
+
+interface BackendRetrievedEvidence {
+  evidence_id: string
+  source: {
+    name: string
+    reference: string | null
+  }
+  summary: string
+  metadata?: {
+    classification?: string | null
+    review_status?: string | null
+    last_evaluated?: string | null
+  }
+}
+
+interface BackendEvidenceRetrievalResult {
+  source: string
+  status: "found" | "not_found"
+  message: string
+  evidence: BackendRetrievedEvidence[]
+}
+
 export class ApiError extends Error {
   readonly status?: number
 
@@ -234,5 +265,34 @@ export async function loadSavedVariant(
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null
     throw error
+  }
+}
+
+export async function retrieveEvidence(
+  gene: string,
+  hgvsNotation: string,
+): Promise<{
+  source: string
+  status: BackendEvidenceRetrievalResult["status"]
+  message: string
+  evidence: RetrievedEvidence[]
+}> {
+  const result = await request<BackendEvidenceRetrievalResult>(
+    `${API_BASE}/evidence/${encodeURIComponent(gene)}/${encodeURIComponent(hgvsNotation)}`,
+    { signal: AbortSignal.timeout(15000) },
+  )
+  return {
+    source: result.source,
+    status: result.status,
+    message: result.message,
+    evidence: result.evidence.map((item) => ({
+      id: item.evidence_id,
+      source_name: item.source.name,
+      source_ref: item.source.reference ?? "",
+      summary: item.summary,
+      classification: item.metadata?.classification ?? null,
+      review_status: item.metadata?.review_status ?? null,
+      last_evaluated: item.metadata?.last_evaluated ?? null,
+    })),
   }
 }

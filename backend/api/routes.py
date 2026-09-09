@@ -5,6 +5,7 @@ from typing import Any
 
 from backend.api.controllers import (
     analysis_controller,
+    external_evidence_controller,
     health_controller,
     variant_evidence_controller,
 )
@@ -20,6 +21,8 @@ ROUTES: dict[tuple[str, str], Controller] = {
 
 
 def resolve_route(method: str, path: str) -> Controller | None:
+    if method.upper() == "GET" and path.startswith("/evidence/"):
+        return external_evidence_controller
     return ROUTES.get((method.upper(), path))
 
 

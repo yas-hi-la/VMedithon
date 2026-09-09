@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, useCallback, ReactNode } from 'react';
 import {
   analyzeVariant,
   loadSavedVariant,
+  retrieveEvidence,
   type EvidenceItem,
   type AnalysisResult,
+  type RetrievedEvidence,
 } from './api';
 
 // ─── Realistic molecular DNA canvas ──────────────────────────────────────────
@@ -286,6 +288,7 @@ function EvidenceCard({
               onChange={(e) => onChange(item.id, field, e.target.value)}
               className="input-field w-full rounded-lg px-3 py-2 text-sm"
             >
+              {!options.includes(item[field]) && <option value="">Select {label.toLowerCase()}</option>}
               {options.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           </div>
@@ -316,6 +319,65 @@ function EvidenceCard({
           placeholder="What does this evidence demonstrate?"
           className="input-field w-full rounded-lg px-3 py-2 text-sm resize-none" />
       </div>
+    </div>
+  );
+}
+
+function RetrievedEvidencePanel({
+  items,
+  status,
+  message,
+  onUse,
+  usedIds,
+}: {
+  items: RetrievedEvidence[];
+  status: 'idle' | 'loading' | 'found' | 'not_found' | 'error';
+  message: string;
+  onUse: (item: RetrievedEvidence) => void;
+  usedIds: Set<string>;
+}) {
+  if (status === 'idle') return null;
+
+  return (
+    <div className="rounded-xl p-4 mb-4" style={{ background: '#f8faf9', border: '1px solid var(--border)' }}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium" style={{ color: 'var(--foreground)' }}>ClinVar public evidence</span>
+        {status === 'loading' && <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Retrieving…</span>}
+      </div>
+      {status === 'loading' && (
+        <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Checking ClinVar for matching public records.</p>
+      )}
+      {status === 'not_found' && (
+        <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>No matching public evidence found.</p>
+      )}
+      {status === 'error' && (
+        <p className="text-xs" style={{ color: '#9b3d2c' }}>{message}</p>
+      )}
+      {status === 'found' && (
+        <div className="space-y-2">
+          {items.map((item) => (
+            <div key={item.id} className="rounded-lg p-3" style={{ background: 'var(--muted)', border: '1px solid var(--border)' }}>
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <span className="criterion-tag" style={{ background: '#eaf1f0', color: '#397C78' }}>Source record</span>
+                <button
+                  onClick={() => onUse(item)}
+                  disabled={usedIds.has(item.id)}
+                  className="btn-secondary rounded-lg px-2.5 py-1 text-xs font-medium"
+                >
+                  {usedIds.has(item.id) ? 'Added for review' : 'Review in analysis'}
+                </button>
+              </div>
+              <p className="text-sm mb-1" style={{ color: 'var(--foreground)' }}>{item.summary}</p>
+              <div className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                ClinVar{item.source_ref && <> &middot; <span className="font-mono">{item.source_ref}</span></>}
+              </div>
+              <p className="text-[11px] mt-2" style={{ color: 'var(--muted-foreground)' }}>
+                Not mapped to an ACMG criterion. Select the criterion, strength, and direction before analyzing.
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -723,11 +785,49 @@ export default function App() {
   const [result, setResult]   = useState<AnalysisResult | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [validErr, setValidErr] = useState('');
+  const [retrievedEvidence, setRetrievedEvidence] = useState<RetrievedEvidence[]>([]);
+  const [retrievalState, setRetrievalState] = useState<'idle' | 'loading' | 'found' | 'not_found' | 'error'>('idle');
+  const [retrievalMessage, setRetrievalMessage] = useState('');
+  const [usedRetrievedIds, setUsedRetrievedIds] = useState<Set<string>>(new Set());
 
   const addEvidence    = () => setEvidence((p) => [...p, newEvidence()]);
   const removeEvidence = (id: string) => setEvidence((p) => p.filter((e) => e.id !== id));
   const updateEvidence = (id: string, field: keyof EvidenceItem, val: string) =>
     setEvidence((p) => p.map((e) => (e.id === id ? { ...e, [field]: val } : e)));
+
+  const handleRetrieveEvidence = useCallback(async () => {
+    if (!gene.trim() || !hgvs.trim()) {
+      setValidErr('Enter a gene and HGVS notation first.');
+      return;
+    }
+    setValidErr('');
+    setRetrievalState('loading');
+    setRetrievalMessage('');
+    try {
+      const result = await retrieveEvidence(gene.trim(), hgvs.trim());
+      setRetrievedEvidence(result.evidence);
+      setRetrievalState(result.status);
+      setRetrievalMessage(result.message);
+      setUsedRetrievedIds(new Set());
+    } catch (e) {
+      setRetrievedEvidence([]);
+      setRetrievalState('error');
+      setRetrievalMessage(e instanceof Error ? e.message : 'Unable to retrieve public evidence.');
+    }
+  }, [gene, hgvs]);
+
+  const handleUseRetrievedEvidence = (item: RetrievedEvidence) => {
+    setEvidence((current) => [...current, {
+      id: item.id,
+      criterion: '',
+      strength: '',
+      direction: '',
+      source_name: item.source_name,
+      source_ref: item.source_ref,
+      summary: item.summary,
+    }]);
+    setUsedRetrievedIds((current) => new Set(current).add(item.id));
+  };
 
   const handleLoadSaved = useCallback(async () => {
     if (!gene.trim() || !hgvs.trim()) {
@@ -823,14 +923,27 @@ export default function App() {
             <div className="surface-card rounded-2xl p-6">
               <div className="flex items-center justify-between mb-1">
                 <h2 className="font-display font-bold text-base" style={{ color: 'var(--foreground)' }}>Evidence</h2>
-                <button onClick={addEvidence}
-                  className="btn-secondary rounded-lg px-3 py-1.5 text-xs font-medium flex items-center gap-1">
-                  <span>+</span> Add Evidence
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={handleRetrieveEvidence} disabled={retrievalState === 'loading'}
+                    className="btn-secondary rounded-lg px-3 py-1.5 text-xs font-medium">
+                    {retrievalState === 'loading' ? 'Retrieving…' : 'Retrieve Evidence'}
+                  </button>
+                  <button onClick={addEvidence}
+                    className="btn-secondary rounded-lg px-3 py-1.5 text-xs font-medium flex items-center gap-1">
+                    <span>+</span> Add Evidence
+                  </button>
+                </div>
               </div>
               <p className="text-xs mb-4" style={{ color: 'var(--muted-foreground)' }}>
                 Add structured evidence used in the analysis.
               </p>
+              <RetrievedEvidencePanel
+                items={retrievedEvidence}
+                status={retrievalState}
+                message={retrievalMessage}
+                onUse={handleUseRetrievedEvidence}
+                usedIds={usedRetrievedIds}
+              />
               <div className="space-y-3">
                 {evidence.length === 0 ? (
                   <div className="text-center py-6 rounded-xl"

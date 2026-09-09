@@ -4,8 +4,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 import json
 import sqlite3
+from urllib.parse import unquote
 
 from backend.api.routes import resolve_route, route_exists
+from backend.services.evidence_retrieval.clinvar import ClinVarRetrievalError
 from backend.services.variant_service.read_service import VariantNotFoundError
 
 
@@ -43,6 +45,11 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
                 payload = controller(self._read_json_body())
             elif self.command == "GET" and path == "/analysis/variants":
                 payload = controller(self._read_query_string())
+            elif self.command == "GET" and path.startswith("/evidence/"):
+                parts = [unquote(part) for part in path.split("/") if part]
+                if len(parts) != 3:
+                    raise ValueError("evidence path must include gene and hgvs notation")
+                payload = controller(parts[1], parts[2])
             else:
                 payload = controller()
         except (TypeError, ValueError, json.JSONDecodeError) as error:
@@ -71,6 +78,12 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
                         "message": "Submitted data conflicts with existing data",
                     }
                 },
+            )
+            return
+        except ClinVarRetrievalError as error:
+            self._send_json(
+                HTTPStatus(error.status_code),
+                {"error": {"code": "external_evidence_unavailable", "message": str(error)}},
             )
             return
         except Exception:
