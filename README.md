@@ -20,7 +20,7 @@ This is a prototype and decision-support tool. It is not a clinical diagnostic s
 
 ## Current Implementation Status
 
-Step 1 scaffolding is complete. The backend currently exposes only a minimal health check:
+Step 2 foundation work is complete. The backend currently exposes only a minimal health check:
 
 ```text
 GET /health
@@ -28,6 +28,8 @@ GET /health
 ```
 
 No variant validation, normalization, external API retrieval, predictor retrieval, ACMG rules, classification, treatment logic, or frontend screens have been implemented.
+
+The backend is organized into configuration (`backend/config/`), HTTP server setup (`backend/api/server.py`), route definitions (`backend/api/routes.py`), request handling (`backend/api/handler.py`), controllers (`backend/api/controllers.py`), and services (`backend/services/`).
 
 ## Planned Modules
 
@@ -61,6 +63,14 @@ Expected response:
 ```
 
 To configure the listening address or port, export `BACKEND_HOST` and `BACKEND_PORT`. `.env.example` lists placeholders for future integrations; it contains no real credentials or secrets.
+
+Run the backend checks with:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py'
+```
+
+The tests cover the health response and the basic not-found error response. The application does not load `.env` files automatically; configuration is read from the process environment.
 
 ## Disclaimer
 
