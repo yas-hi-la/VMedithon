@@ -52,6 +52,8 @@ Step 11 adds `persist_and_analyze_variant` in `backend/services/variant_service/
 
 Step 12 connects `POST /analysis/variants` to the persisted-analysis workflow. Valid requests now persist the submitted variant/evidence before returning the existing serialized analysis result. Duplicate evidence returns a safe conflict response and rolls back the complete submission; malformed requests remain HTTP 400. The endpoint requires the explicitly initialized configured SQLite database.
 
+Step 13 adds a read-only evidence endpoint: `GET /analysis/variants?gene=...&hgvs_notation=...`. It retrieves the persisted Variant and EvidenceItem records by their existing `(gene, hgvs_notation)` identity without invoking analysis. The response contains only variant identity and persisted evidence/provenance; missing variants return HTTP 404 and malformed query parameters return HTTP 400.
+
 ## Planned Modules
 
 - Variant input, HGVS validation, and normalization.
@@ -92,6 +94,12 @@ curl -X POST http://127.0.0.1:8000/analysis/variants \
 ```
 
 Valid analysis requests return HTTP 200, including when the result is `insufficient_evidence` or `conflicting`. Malformed JSON or structurally invalid input returns HTTP 400. The endpoint does not access the database.
+
+Retrieve persisted evidence for an existing variant:
+
+```bash
+curl 'http://127.0.0.1:8000/analysis/variants?gene=BRCA1&hgvs_notation=c.5266dupC'
+```
 
 To configure the listening address or port, export `BACKEND_HOST` and `BACKEND_PORT`. `.env.example` lists placeholders for future integrations; it contains no real credentials or secrets.
 

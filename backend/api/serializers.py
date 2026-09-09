@@ -3,6 +3,7 @@
 from typing import Any
 
 from backend.analysis.types import AnalysisResult, EvidenceItem
+from backend.services.variant_service.read_service import VariantWithEvidence
 
 
 def _serialize_evidence(item: EvidenceItem) -> dict[str, Any]:
@@ -56,4 +57,16 @@ def serialize_analysis_result(result: AnalysisResult) -> dict[str, Any]:
         "satisfied_rules": list(result.satisfied_rules),
         "unsupported_rules": list(result.unsupported_rules),
         "decision_trace": list(result.decision_trace),
+    }
+
+
+def serialize_variant_with_evidence(
+    result: VariantWithEvidence,
+) -> dict[str, Any]:
+    return {
+        "variant": {
+            "gene": result.variant.gene,
+            "hgvs_notation": result.variant.hgvs_notation,
+        },
+        "evidence": [_serialize_evidence(item) for item in result.evidence],
     }

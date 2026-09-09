@@ -6,6 +6,7 @@ import json
 import sqlite3
 
 from backend.api.routes import resolve_route, route_exists
+from backend.services.variant_service.read_service import VariantNotFoundError
 
 
 class ApiRequestHandler(BaseHTTPRequestHandler):
@@ -38,11 +39,27 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            payload = controller(self._read_json_body()) if self.command == "POST" else controller()
+            if self.command == "POST":
+                payload = controller(self._read_json_body())
+            elif self.command == "GET" and path == "/analysis/variants":
+                payload = controller(self._read_query_string())
+            else:
+                payload = controller()
         except (TypeError, ValueError, json.JSONDecodeError) as error:
             self._send_json(
                 HTTPStatus.BAD_REQUEST,
                 {"error": {"code": "invalid_request", "message": str(error)}},
+            )
+            return
+        except VariantNotFoundError:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {
+                    "error": {
+                        "code": "variant_not_found",
+                        "message": "Variant not found",
+                    }
+                },
             )
             return
         except sqlite3.IntegrityError:
@@ -85,6 +102,9 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
             return json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ValueError("request body must contain valid JSON") from error
+
+    def _read_query_string(self) -> str:
+        return self.path.split("?", 1)[1] if "?" in self.path else ""
 
     def _send_json(self, status: HTTPStatus, payload: dict[str, str]) -> None:
         response = json.dumps(payload).encode("utf-8")

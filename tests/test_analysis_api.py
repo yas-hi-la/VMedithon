@@ -190,6 +190,92 @@ class AnalysisApiTest(unittest.TestCase):
                 1,
             )
 
+    def test_get_existing_variant_with_no_evidence(self) -> None:
+        self.assertEqual(self.request("POST", "/analysis/variants", self.valid_request())[0], 200)
+
+        status, payload = self.request(
+            "GET",
+            "/analysis/variants?gene=BRCA1&hgvs_notation=c.5266dupC",
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            payload,
+            {
+                "variant": {
+                    "gene": "BRCA1",
+                    "hgvs_notation": "c.5266dupC",
+                },
+                "evidence": [],
+            },
+        )
+
+    def test_get_existing_variant_returns_ordered_evidence(self) -> None:
+        evidence = [
+            self.evidence("first", "PM2", "moderate", "pathogenic"),
+            self.evidence("second", "PP3", "supporting", "pathogenic"),
+        ]
+        self.assertEqual(
+            self.request("POST", "/analysis/variants", self.valid_request(evidence))[0],
+            200,
+        )
+
+        status, payload = self.request(
+            "GET",
+            "/analysis/variants?gene=BRCA1&hgvs_notation=c.5266dupC",
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [item["evidence_id"] for item in payload["evidence"]],
+            ["first", "second"],
+        )
+        self.assertEqual(payload["evidence"][0]["source"]["name"], "test-source")
+        self.assertTrue(payload["evidence"][0]["source"]["reference"])
+
+    def test_get_missing_variant_returns_not_found(self) -> None:
+        status, payload = self.request(
+            "GET",
+            "/analysis/variants?gene=BRCA2&hgvs_notation=c.5946delT",
+        )
+
+        self.assertEqual(status, 404)
+        self.assertEqual(payload["error"]["code"], "variant_not_found")
+
+    def test_get_missing_or_blank_query_values_returns_bad_request(self) -> None:
+        for query in (
+            "",
+            "gene=BRCA1",
+            "hgvs_notation=c.5266dupC",
+            "gene=&hgvs_notation=c.5266dupC",
+            "gene=BRCA1&hgvs_notation=",
+        ):
+            with self.subTest(query=query):
+                status, payload = self.request("GET", "/analysis/variants?" + query)
+                self.assertEqual(status, 400)
+                self.assertEqual(payload["error"]["code"], "invalid_request")
+
+    def test_get_repeated_query_value_returns_bad_request(self) -> None:
+        status, payload = self.request(
+            "GET",
+            "/analysis/variants?gene=BRCA1&gene=BRCA2&hgvs_notation=c.5266dupC",
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"]["code"], "invalid_request")
+
+    def test_get_database_failure_returns_safe_server_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "uninitialized.db"
+            with patch.dict(os.environ, {"DB_PATH": str(database_path)}):
+                status, payload = self.request(
+                    "GET",
+                    "/analysis/variants?gene=BRCA1&hgvs_notation=c.5266dupC",
+                )
+
+        self.assertEqual(status, 500)
+        self.assertEqual(payload["error"]["code"], "internal_server_error")
+
     def test_supported_pathogenic_classification_is_serialized(self) -> None:
         evidence = [
             self.evidence("functional", "PS3", "strong", "pathogenic"),
@@ -327,7 +413,7 @@ class AnalysisApiTest(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "invalid_request")
 
     def test_unsupported_method_returns_method_not_allowed(self) -> None:
-        status, payload = self.request("GET", "/analysis/variants")
+        status, payload = self.request("PUT", "/analysis/variants")
 
         self.assertEqual(status, 405)
         self.assertEqual(payload["error"]["code"], "method_not_allowed")

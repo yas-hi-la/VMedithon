@@ -3,10 +3,17 @@
 from typing import Any
 
 from backend.api.analysis_requests import parse_analysis_request
-from backend.api.serializers import serialize_analysis_result
+from backend.api.serializers import (
+    serialize_analysis_result,
+    serialize_variant_with_evidence,
+)
+from backend.api.variant_queries import parse_variant_lookup
 from backend.services.health_service import get_health_status
 from backend.services.variant_service.persisted_analysis_service import (
     persist_and_analyze_variant_from_environment,
+)
+from backend.services.variant_service.read_service import (
+    get_variant_with_evidence_from_environment,
 )
 
 
@@ -21,3 +28,12 @@ def analysis_controller(payload: object) -> dict[str, Any]:
         request.evidence,
     )
     return serialize_analysis_result(result)
+
+
+def variant_evidence_controller(query_string: str) -> dict[str, Any]:
+    lookup = parse_variant_lookup(query_string)
+    result = get_variant_with_evidence_from_environment(
+        lookup.gene,
+        lookup.hgvs_notation,
+    )
+    return serialize_variant_with_evidence(result)
