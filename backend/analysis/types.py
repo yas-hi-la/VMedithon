@@ -41,6 +41,13 @@ class Classification(str, Enum):
     INSUFFICIENT_EVIDENCE = "insufficient_evidence"
 
 
+class AnalysisStatus(str, Enum):
+    SUPPORTED = "supported"
+    INSUFFICIENT = "insufficient"
+    CONFLICTING = "conflicting"
+    UNSUPPORTED = "unsupported"
+
+
 @dataclass(frozen=True)
 class EvidenceSource:
     name: str
@@ -78,9 +85,33 @@ class EvidenceItem:
 
 
 @dataclass(frozen=True)
+class CriterionEvaluation:
+    criterion: CriterionCode
+    direction: EvidenceDirection
+    strength: CriterionStrength
+    evidence_ids: tuple[str, ...]
+    supported: bool
+    explanation: str
+
+
+@dataclass(frozen=True)
+class RuleEvaluation:
+    rule_id: str
+    classification: Classification
+    satisfied: bool
+    evidence_ids: tuple[str, ...]
+    explanation: str
+
+
+@dataclass(frozen=True)
 class AnalysisResult:
     variant: Variant
     classification: Classification
     criteria_considered: tuple[CriterionCode, ...]
     evidence_used: tuple[EvidenceItem, ...]
     decision_trace: tuple[str, ...]
+    status: AnalysisStatus = AnalysisStatus.INSUFFICIENT
+    criterion_evaluations: tuple[CriterionEvaluation, ...] = ()
+    rule_evaluations: tuple[RuleEvaluation, ...] = ()
+    satisfied_rules: tuple[str, ...] = ()
+    unsupported_rules: tuple[str, ...] = ()

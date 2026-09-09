@@ -29,7 +29,7 @@ GET /health
 {"status": "ok"}
 ```
 
-No variant validation, normalization, external API retrieval, predictor retrieval, ACMG rules, classification, treatment logic, or frontend screens have been implemented.
+No variant validation, normalization, external API retrieval, predictor retrieval, treatment logic, or frontend screens have been implemented.
 
 The backend is organized into configuration (`backend/config/`), HTTP server setup (`backend/api/server.py`), route definitions (`backend/api/routes.py`), request handling (`backend/api/handler.py`), controllers (`backend/api/controllers.py`), services (`backend/services/`), and an HTTP-independent SQLite database layer (`backend/database/`).
 
@@ -37,12 +37,14 @@ Step 4 adds the initial `Variant` domain model. It stores only the required gene
 
 Step 5 adds an HTTP- and database-independent analysis layer. It accepts an existing `Variant` plus explicitly supplied evidence, preserves evidence provenance and ACMG/AMP criterion traceability, and returns a machine-readable result. The current deterministic behavior reports `insufficient_evidence` when evidence is absent or no combination rule is implemented, and reports `conflicting` when pathogenic and benign evidence are both present. It does not call external sources, infer evidence from gene/HGVS strings, or provide treatment recommendations.
 
+Step 6 adds a deterministic ACMG/AMP-style rule layer inside `backend/analysis/`. It evaluates only explicitly supplied criteria and strengths, preserves criterion-level evaluations, and records satisfied rules and evidence IDs in the decision trace. The supported benign subset includes one stand-alone benign criterion, two strong benign criteria, and one strong plus one supporting benign criterion. Empty, conflicting, and unsupported combinations remain conservative. This is an engineering foundation, not a clinically validated classifier.
+
 ## Planned Modules
 
 - Variant input, HGVS validation, and normalization.
 - ClinVar and gnomAD evidence services.
 - REVEL, CADD, and BayesDel predictor services.
-- ACMG rule evaluation and classification.
+- Expanded ACMG/AMP rule evaluation and classification.
 - Treatment association and explainable report generation.
 - Frontend workflow for submitting variants and reviewing evidence.
 
@@ -105,6 +107,8 @@ Analysis tests use in-memory domain objects and no external services:
 ```bash
 python3 -m unittest tests.test_analysis
 ```
+
+The analysis engine does not retrieve evidence or infer criterion values. Additional ACMG/AMP combinations that are not represented in `backend/analysis/rules.py` are reported as unsupported rather than guessed.
 
 Run the backend checks with:
 
