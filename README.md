@@ -48,6 +48,8 @@ Step 9 separates request parsing and domain mapping into `backend/api/analysis_r
 
 Step 10 adds SQLite persistence for explicitly submitted evidence in `variant_evidence`, linked to `variants` by foreign key. Evidence rows preserve source provenance, reject duplicate `(variant_id, evidence_id)` pairs, and are inserted through transaction-aware repository/service functions. The analysis engine remains in-memory and database-independent; `POST /analysis/variants` does not persist evidence yet.
 
+Step 11 adds `persist_and_analyze_variant` in `backend/services/variant_service/persisted_analysis_service.py`. This persistence-aware use case atomically reuses or creates the variant, inserts all submitted evidence, runs the existing in-memory analysis against that exact evidence tuple, and commits only after persistence and analysis succeed. The HTTP API remains unchanged and does not call this workflow yet.
+
 ## Planned Modules
 
 - Variant input, HGVS validation, and normalization.
