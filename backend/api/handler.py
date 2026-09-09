@@ -4,29 +4,75 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 import json
 
-from backend.api.routes import resolve_route
+from backend.api.routes import resolve_route, route_exists
 
 
 class ApiRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         self._handle_request()
 
+    def do_POST(self) -> None:
+        self._handle_request()
+
+    def do_PUT(self) -> None:
+        self._handle_request()
+
+    def do_PATCH(self) -> None:
+        self._handle_request()
+
+    def do_DELETE(self) -> None:
+        self._handle_request()
+
     def _handle_request(self) -> None:
-        controller = resolve_route(self.command, self.path)
+        path = self.path.split("?", 1)[0]
+        controller = resolve_route(self.command, path)
         if controller is None:
-            self._send_json(HTTPStatus.NOT_FOUND, {"error": "Not Found"})
+            if route_exists(path):
+                self._send_json(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    {"error": {"code": "method_not_allowed", "message": "Method Not Allowed"}},
+                )
+            else:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "Not Found"})
             return
 
         try:
-            payload = controller()
+            payload = controller(self._read_json_body()) if self.command == "POST" else controller()
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": {"code": "invalid_request", "message": str(error)}},
+            )
+            return
         except Exception:
             self._send_json(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
-                {"error": "Internal Server Error"},
+                {
+                    "error": {
+                        "code": "internal_server_error",
+                        "message": "Internal Server Error",
+                    }
+                },
             )
             return
 
         self._send_json(HTTPStatus.OK, payload)
+
+    def _read_json_body(self) -> object:
+        content_length = self.headers.get("Content-Length")
+        if content_length is None:
+            raise ValueError("request body is required")
+        try:
+            body_length = int(content_length)
+        except ValueError as error:
+            raise ValueError("invalid Content-Length") from error
+        if body_length <= 0:
+            raise ValueError("request body is required")
+        try:
+            body = self.rfile.read(body_length)
+            return json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("request body must contain valid JSON") from error
 
     def _send_json(self, status: HTTPStatus, payload: dict[str, str]) -> None:
         response = json.dumps(payload).encode("utf-8")

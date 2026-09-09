@@ -42,6 +42,8 @@ Step 6 adds a deterministic ACMG/AMP-style rule layer inside `backend/analysis/`
 
 Step 7 adds a thin application service at `backend/services/variant_service/analysis_service.py`. Its `run_variant_analysis` entry point accepts an existing `Variant` and explicitly supplied evidence, delegates to the deterministic analysis engine, and returns its `AnalysisResult` unchanged. It does not retrieve evidence, implement scientific rules, access SQLite, or generate clinical recommendations. No HTTP endpoint uses it yet.
 
+Step 8 adds `POST /analysis/variants`, a thin JSON HTTP boundary around the Step 7 application service. Requests supply the variant and evidence explicitly; evidence is not retrieved automatically. Responses include the controlled classification, status, criterion and rule evaluations, evidence IDs, and decision trace. This remains a limited deterministic ACMG/AMP-style engineering foundation, not a clinically validated classifier or medical recommendation system.
+
 ## Planned Modules
 
 - Variant input, HGVS validation, and normalization.
@@ -72,6 +74,16 @@ Expected response:
 ```json
 {"status": "ok"}
 ```
+
+Submit an explicitly structured analysis request:
+
+```bash
+curl -X POST http://127.0.0.1:8000/analysis/variants \
+	-H 'Content-Type: application/json' \
+	-d '{"variant":{"gene":"BRCA1","hgvs_notation":"c.5266dupC"},"evidence":[]}'
+```
+
+Valid analysis requests return HTTP 200, including when the result is `insufficient_evidence` or `conflicting`. Malformed JSON or structurally invalid input returns HTTP 400. The endpoint does not access the database.
 
 To configure the listening address or port, export `BACKEND_HOST` and `BACKEND_PORT`. `.env.example` lists placeholders for future integrations; it contains no real credentials or secrets.
 
