@@ -12,6 +12,7 @@ This is a prototype and decision-support tool. It is not a clinical diagnostic s
 - `backend/api/`: HTTP entry points and API route handlers.
 - `backend/services/`: Independently developed integrations and application services.
 - `backend/database/`: SQLite configuration, connections, initialization, schema, and health checks.
+- `backend/analysis/`: In-memory deterministic analysis types and engine.
 - `backend/acmg_engine/`: Future ACMG rules and classification components.
 - `backend/models/`: Shared data models.
 - `backend/utils/`: Shared utilities.
@@ -33,6 +34,8 @@ No variant validation, normalization, external API retrieval, predictor retrieva
 The backend is organized into configuration (`backend/config/`), HTTP server setup (`backend/api/server.py`), route definitions (`backend/api/routes.py`), request handling (`backend/api/handler.py`), controllers (`backend/api/controllers.py`), services (`backend/services/`), and an HTTP-independent SQLite database layer (`backend/database/`).
 
 Step 4 adds the initial `Variant` domain model. It stores only the required gene and HGVS notation fields; HGVS validation and normalization remain future work. The current SQLite schema version is 2.
+
+Step 5 adds an HTTP- and database-independent analysis layer. It accepts an existing `Variant` plus explicitly supplied evidence, preserves evidence provenance and ACMG/AMP criterion traceability, and returns a machine-readable result. The current deterministic behavior reports `insufficient_evidence` when evidence is absent or no combination rule is implemented, and reports `conflicting` when pathogenic and benign evidence are both present. It does not call external sources, infer evidence from gene/HGVS strings, or provide treatment recommendations.
 
 ## Planned Modules
 
@@ -95,6 +98,12 @@ Model and repository tests use isolated temporary SQLite files as well:
 
 ```bash
 python3 -m unittest tests.test_variant_repository
+```
+
+Analysis tests use in-memory domain objects and no external services:
+
+```bash
+python3 -m unittest tests.test_analysis
 ```
 
 Run the backend checks with:
