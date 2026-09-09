@@ -11,6 +11,7 @@ This is a prototype and decision-support tool. It is not a clinical diagnostic s
 - `frontend/`: Future user interface.
 - `backend/api/`: HTTP entry points and API route handlers.
 - `backend/services/`: Independently developed integrations and application services.
+- `backend/services/variant_service/analysis_service.py`: Application use case that orchestrates local deterministic variant analysis.
 - `backend/database/`: SQLite configuration, connections, initialization, schema, and health checks.
 - `backend/analysis/`: In-memory deterministic analysis types and engine.
 - `backend/acmg_engine/`: Future ACMG rules and classification components.
@@ -38,6 +39,8 @@ Step 4 adds the initial `Variant` domain model. It stores only the required gene
 Step 5 adds an HTTP- and database-independent analysis layer. It accepts an existing `Variant` plus explicitly supplied evidence, preserves evidence provenance and ACMG/AMP criterion traceability, and returns a machine-readable result. The current deterministic behavior reports `insufficient_evidence` when evidence is absent or no combination rule is implemented, and reports `conflicting` when pathogenic and benign evidence are both present. It does not call external sources, infer evidence from gene/HGVS strings, or provide treatment recommendations.
 
 Step 6 adds a deterministic ACMG/AMP-style rule layer inside `backend/analysis/`. It evaluates only explicitly supplied criteria and strengths, preserves criterion-level evaluations, and records satisfied rules and evidence IDs in the decision trace. The supported benign subset includes one stand-alone benign criterion, two strong benign criteria, and one strong plus one supporting benign criterion. Empty, conflicting, and unsupported combinations remain conservative. This is an engineering foundation, not a clinically validated classifier.
+
+Step 7 adds a thin application service at `backend/services/variant_service/analysis_service.py`. Its `run_variant_analysis` entry point accepts an existing `Variant` and explicitly supplied evidence, delegates to the deterministic analysis engine, and returns its `AnalysisResult` unchanged. It does not retrieve evidence, implement scientific rules, access SQLite, or generate clinical recommendations. No HTTP endpoint uses it yet.
 
 ## Planned Modules
 
@@ -106,6 +109,12 @@ Analysis tests use in-memory domain objects and no external services:
 
 ```bash
 python3 -m unittest tests.test_analysis
+```
+
+Application-service orchestration tests:
+
+```bash
+python3 -m unittest tests.test_variant_analysis_service
 ```
 
 The analysis engine does not retrieve evidence or infer criterion values. Additional ACMG/AMP combinations that are not represented in `backend/analysis/rules.py` are reported as unsupported rather than guessed.
