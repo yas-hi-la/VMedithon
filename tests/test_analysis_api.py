@@ -1,5 +1,8 @@
 import json
 from http.client import HTTPConnection
+import os
+from pathlib import Path
+import tempfile
 import threading
 import unittest
 from unittest.mock import patch
@@ -7,22 +10,40 @@ from unittest.mock import patch
 from backend.analysis.types import AnalysisResult, Classification
 from backend.api.server import create_server
 from backend.config.settings import Settings
+from backend.database.config import DatabaseSettings
+from backend.database.connection import connect
+from backend.database.initialize import initialize_database
 from backend.models.variant import Variant
 
 
 class AnalysisApiTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.database_path = Path(cls.temp_dir.name) / "api.db"
+        cls.environment = patch.dict(
+            os.environ,
+            {"DB_PATH": str(cls.database_path)},
+        )
+        cls.environment.start()
+        initialize_database(DatabaseSettings(path=cls.database_path))
         cls.server = create_server(Settings(host="127.0.0.1", port=0))
         cls.thread = threading.Thread(target=cls.server.serve_forever)
         cls.thread.start()
         cls.port = cls.server.server_address[1]
+
+    def setUp(self) -> None:
+        with connect(DatabaseSettings(path=self.database_path)) as connection:
+            connection.execute("DELETE FROM variant_evidence")
+            connection.execute("DELETE FROM variants")
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls.server.shutdown()
         cls.thread.join()
         cls.server.server_close()
+        cls.environment.stop()
+        cls.temp_dir.cleanup()
 
     def request(
         self,
@@ -77,6 +98,97 @@ class AnalysisApiTest(unittest.TestCase):
         self.assertEqual(payload["classification"], "insufficient_evidence")
         self.assertEqual(payload["status"], "insufficient")
         self.assertEqual(payload["evidence_used"], [])
+        with connect(DatabaseSettings(path=self.database_path)) as connection:
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM variant_evidence").fetchone()[0],
+                0,
+            )
+
+    def test_one_evidence_item_is_persisted(self) -> None:
+        evidence = [self.evidence("one", "PM2", "moderate", "pathogenic")]
+
+        status, payload = self.request(
+            "POST", "/analysis/variants", self.valid_request(evidence)
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["classification"], "insufficient_evidence")
+        with connect(DatabaseSettings(path=self.database_path)) as connection:
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM variants").fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM variant_evidence").fetchone()[0],
+                1,
+            )
+
+    def test_multiple_evidence_items_are_persisted_and_analyzed(self) -> None:
+        evidence = [
+            self.evidence("functional", "PS3", "strong", "pathogenic"),
+            self.evidence("population", "PM2", "moderate", "pathogenic"),
+        ]
+
+        status, payload = self.request(
+            "POST", "/analysis/variants", self.valid_request(evidence)
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["classification"], "likely_pathogenic")
+        with connect(DatabaseSettings(path=self.database_path)) as connection:
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM variant_evidence").fetchone()[0],
+                2,
+            )
+
+    def test_repeated_variant_request_reuses_variant_and_adds_evidence(self) -> None:
+        first = self.valid_request(
+            [self.evidence("first", "PM2", "moderate", "pathogenic")]
+        )
+        second = self.valid_request(
+            [self.evidence("second", "PP3", "supporting", "pathogenic")]
+        )
+
+        self.assertEqual(self.request("POST", "/analysis/variants", first)[0], 200)
+        self.assertEqual(self.request("POST", "/analysis/variants", second)[0], 200)
+
+        with connect(DatabaseSettings(path=self.database_path)) as connection:
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM variants").fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM variant_evidence").fetchone()[0],
+                2,
+            )
+
+    def test_duplicate_evidence_returns_conflict_and_rolls_back_new_rows(self) -> None:
+        first = self.valid_request(
+            [self.evidence("existing", "PM2", "moderate", "pathogenic")]
+        )
+        duplicate_submission = self.valid_request(
+            [
+                self.evidence("new", "PP3", "supporting", "pathogenic"),
+                self.evidence("existing", "PM2", "moderate", "pathogenic"),
+            ]
+        )
+
+        self.assertEqual(self.request("POST", "/analysis/variants", first)[0], 200)
+        status, payload = self.request(
+            "POST", "/analysis/variants", duplicate_submission
+        )
+
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"]["code"], "persistence_conflict")
+        with connect(DatabaseSettings(path=self.database_path)) as connection:
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM variants").fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM variant_evidence").fetchone()[0],
+                1,
+            )
 
     def test_supported_pathogenic_classification_is_serialized(self) -> None:
         evidence = [
@@ -227,9 +339,7 @@ class AnalysisApiTest(unittest.TestCase):
         self.assertEqual(payload, {"status": "ok"})
 
     def test_identical_requests_return_equivalent_json(self) -> None:
-        request = self.valid_request(
-            [self.evidence("evidence-1", "PM2", "moderate", "pathogenic")]
-        )
+        request = self.valid_request()
 
         first_status, first_payload = self.request(
             "POST", "/analysis/variants", request
@@ -251,7 +361,10 @@ class AnalysisApiTest(unittest.TestCase):
         )
         request = self.valid_request()
 
-        with patch("backend.api.controllers.run_variant_analysis", return_value=expected) as run:
+        with patch(
+            "backend.api.controllers.persist_and_analyze_variant_from_environment",
+            return_value=expected,
+        ) as run:
             status, payload = self.request("POST", "/analysis/variants", request)
 
         self.assertEqual(status, 200)

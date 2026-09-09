@@ -4,6 +4,8 @@ from collections.abc import Callable, Iterable
 import sqlite3
 
 from backend.analysis.types import AnalysisResult, EvidenceItem
+from backend.database.config import DatabaseSettings
+from backend.database.connection import connect
 from backend.models.variant import Variant
 from backend.services.variant_service.analysis_service import run_variant_analysis
 from backend.services.variant_service.persistence_service import persist_variant_evidence
@@ -39,3 +41,25 @@ def persist_and_analyze_variant(
             evidence_items,
         )
         return analysis_operation(persisted_variant, persisted_evidence)
+
+
+def persist_and_analyze_variant_from_environment(
+    variant: Variant,
+    evidence: Iterable[EvidenceItem],
+    persistence_operation: PersistenceOperation = persist_variant_evidence,
+    analysis_operation: AnalysisOperation = run_variant_analysis,
+) -> AnalysisResult:
+    """Run the persisted workflow using the configured SQLite database."""
+    settings = DatabaseSettings.from_environment()
+    connection = connect(settings)
+    try:
+        with connection:
+            return persist_and_analyze_variant(
+                connection,
+                variant,
+                evidence,
+                persistence_operation=persistence_operation,
+                analysis_operation=analysis_operation,
+            )
+    finally:
+        connection.close()

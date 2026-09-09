@@ -3,6 +3,7 @@
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 import json
+import sqlite3
 
 from backend.api.routes import resolve_route, route_exists
 
@@ -42,6 +43,17 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 HTTPStatus.BAD_REQUEST,
                 {"error": {"code": "invalid_request", "message": str(error)}},
+            )
+            return
+        except sqlite3.IntegrityError:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {
+                    "error": {
+                        "code": "persistence_conflict",
+                        "message": "Submitted data conflicts with existing data",
+                    }
+                },
             )
             return
         except Exception:

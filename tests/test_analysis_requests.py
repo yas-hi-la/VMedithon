@@ -151,7 +151,7 @@ class AnalysisRequestParserTest(unittest.TestCase):
         expected_response = {"classification": "stub"}
 
         with patch(
-            "backend.api.controllers.run_variant_analysis",
+            "backend.api.controllers.persist_and_analyze_variant_from_environment",
             return_value=type("Result", (), {})(),
         ) as run:
             with patch(
@@ -172,7 +172,9 @@ class AnalysisRequestParserTest(unittest.TestCase):
         payload = self.valid_payload()
         payload["variant"]["gene"] = ""  # type: ignore[index]
 
-        with patch("backend.api.controllers.run_variant_analysis") as run:
+        with patch(
+            "backend.api.controllers.persist_and_analyze_variant_from_environment"
+        ) as run:
             self.assert_invalid_controller_payload(payload)
 
         run.assert_not_called()
