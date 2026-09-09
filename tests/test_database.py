@@ -38,7 +38,36 @@ class DatabaseTest(unittest.TestCase):
         with connect(self.settings) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
 
-        self.assertEqual(version, 1)
+        self.assertEqual(version, 2)
+
+    def test_initialization_upgrades_step3_database_without_data_loss(self) -> None:
+        with connect(self.settings) as connection:
+            connection.execute(
+                "CREATE TABLE existing_step3_data (value TEXT NOT NULL)"
+            )
+            connection.execute(
+                "INSERT INTO existing_step3_data (value) VALUES (?)",
+                ("preserve me",),
+            )
+            connection.execute("PRAGMA user_version = 1")
+
+        initialize_database(self.settings)
+
+        with connect(self.settings) as connection:
+            preserved_value = connection.execute(
+                "SELECT value FROM existing_step3_data"
+            ).fetchone()[0]
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            variants_table = connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name = 'variants'
+                """
+            ).fetchone()
+
+        self.assertEqual(preserved_value, "preserve me")
+        self.assertEqual(version, 2)
+        self.assertIsNotNone(variants_table)
 
     def test_initialization_is_repeatable(self) -> None:
         initialize_database(self.settings)

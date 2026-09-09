@@ -32,7 +32,7 @@ No variant validation, normalization, external API retrieval, predictor retrieva
 
 The backend is organized into configuration (`backend/config/`), HTTP server setup (`backend/api/server.py`), route definitions (`backend/api/routes.py`), request handling (`backend/api/handler.py`), controllers (`backend/api/controllers.py`), services (`backend/services/`), and an HTTP-independent SQLite database layer (`backend/database/`).
 
-Step 3 adds SQLite as the local development database. No domain tables have been introduced yet; the schema currently tracks only SQLite's schema version using `PRAGMA user_version`.
+Step 4 adds the initial `Variant` domain model. It stores only the required gene and HGVS notation fields; HGVS validation and normalization remain future work. The current SQLite schema version is 2.
 
 ## Planned Modules
 
@@ -83,10 +83,18 @@ The initialization command is safe to run repeatedly. Check database connectivit
 python3 -m backend.database.health
 ```
 
+Initialization upgrades a Step 3 database from schema version 1 to version 2 without deleting existing data. Fresh databases are initialized directly to version 2. No HTTP endpoint depends on database initialization or domain data.
+
 The database tests use isolated temporary SQLite files:
 
 ```bash
 python3 -m unittest tests.test_database
+```
+
+Model and repository tests use isolated temporary SQLite files as well:
+
+```bash
+python3 -m unittest tests.test_variant_repository
 ```
 
 Run the backend checks with:
